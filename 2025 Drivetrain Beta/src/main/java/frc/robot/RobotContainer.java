@@ -5,7 +5,6 @@
 package frc.robot;
 
 import com.pathplanner.lib.auto.AutoBuilder;
-
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -34,13 +33,12 @@ public class RobotContainer {
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
     /* AUTO */
-    
+
     // build an auto chooser with no default selected
     autoChooser = AutoBuilder.buildAutoChooser();
 
     // put auto chooser on the dashboard
-    SmartDashboard.putData(autoChooser);  
-
+    SmartDashboard.putData(autoChooser);
 
     // drive default command
     m_robotDrive.setDefaultCommand(
