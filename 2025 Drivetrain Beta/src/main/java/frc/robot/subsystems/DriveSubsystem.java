@@ -13,6 +13,9 @@ import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.config.PIDConstants;
 import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.util.DriveFeedforwards;
+import com.pathplanner.lib.util.swerve.SwerveSetpoint;
+import com.pathplanner.lib.util.swerve.SwerveSetpointGenerator;
 import com.studica.frc.AHRS;
 import com.studica.frc.AHRS.NavXComType;
 import edu.wpi.first.math.VecBuilder;
@@ -40,6 +43,8 @@ import frc.robot.LimelightHelpers;
 import java.util.Optional;
 
 public class DriveSubsystem extends SubsystemBase {
+  private final SwerveSetpointGenerator setpointGenerator;
+  private SwerveSetpoint previousSetpoint;
 
   private final Field2d m_field = new Field2d();
 
@@ -86,6 +91,7 @@ public class DriveSubsystem extends SubsystemBase {
           DriveConstants.kDriveKinematics, getHeading(), getModulePositions(), new Pose2d());
 
   /** Creates a new DriveSubsystem. */
+  @SuppressWarnings("unused")
   public DriveSubsystem() {
     Shuffleboard.getTab("Field")
         .add("Field", m_field)
@@ -102,9 +108,24 @@ public class DriveSubsystem extends SubsystemBase {
       e.printStackTrace();
     }
 
+    setpointGenerator =
+        new SwerveSetpointGenerator(robotConfig, Constants.DriveConstants.kMaxAngularSpeed);
+
+    ChassisSpeeds currentSpeeds = getRobotRelativeSpeeds();
+    SwerveModuleState[] currentStates = getModuleStates();
+    previousSetpoint =
+        new SwerveSetpoint(
+            currentSpeeds, currentStates, DriveFeedforwards.zeros(robotConfig.numModules));
+
     mt2FrontConnected = true;
 
     final boolean USE_FEEDFORWARD_FORCES = true;
+    final boolean USE_SETPOINT_GENERATOR = false;
+
+    if (USE_FEEDFORWARD_FORCES && USE_SETPOINT_GENERATOR) {
+      System.out.println(
+          "WARNING DRIVE: Both advanced options are enabled, will default to setpoint generator");
+    }
 
     // Configure AutoBuilder last
     AutoBuilder.configure(
@@ -113,7 +134,11 @@ public class DriveSubsystem extends SubsystemBase {
         // pose)
         this::getRobotRelativeSpeeds, // ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
         (speeds, feedforwards) -> {
-          if (USE_FEEDFORWARD_FORCES) {
+          if ((USE_FEEDFORWARD_FORCES && USE_SETPOINT_GENERATOR)) {
+            driveRobotRelative(speeds);
+          } else if (USE_SETPOINT_GENERATOR) {
+            driveRobotRelative(speeds);
+          } else if (USE_FEEDFORWARD_FORCES) {
             driveAuto(speeds, feedforwards.linearForces());
           } else {
             drive(speeds, false);
@@ -240,6 +265,26 @@ public class DriveSubsystem extends SubsystemBase {
     }
 
     setModuleStatesAuto(swerveModuleStates, feedforwardVoltage);
+  }
+
+  /**
+   * This method will take in desired robot-relative chassis speeds, generate a swerve setpoint,
+   * then set the target state for each module
+   *
+   * @param speeds The desired robot-relative speeds
+   */
+  public void driveRobotRelative(ChassisSpeeds speeds) {
+    // Note: it is important to not discretize speeds before or after
+    // using the setpoint generator, as it will discretize them for you
+    previousSetpoint =
+        setpointGenerator.generateSetpoint(
+            previousSetpoint, // The previous setpoint
+            speeds, // The desired target speeds
+            0.02 // The loop time of the robot code, in seconds
+            );
+    setModuleStates(
+        previousSetpoint
+            .moduleStates()); // Method that will drive the robot given target module states
   }
 
   /** Sets the wheels into an X formation to prevent movement. */
