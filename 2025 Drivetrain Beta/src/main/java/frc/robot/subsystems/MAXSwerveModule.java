@@ -45,15 +45,12 @@ public class MAXSwerveModule {
     m_drivingSparkFlex = new SparkFlex(drivingCANId, MotorType.kBrushless);
     m_turningSparkMax = new SparkMax(turningCANId, MotorType.kBrushless);
 
+    m_drivingEncoder = m_drivingSparkFlex.getEncoder();
+    m_turningEncoder = m_turningSparkMax.getAbsoluteEncoder();
+
     // Closed Loop Controllers
     m_drivingPIDController = m_drivingSparkFlex.getClosedLoopController();
     m_turningPIDController = m_turningSparkMax.getClosedLoopController();
-
-    // Chassis Configuration
-    m_chassisAngularOffset = chassisAngularOffset;
-    m_desiredState.angle = new Rotation2d(m_turningEncoder.getPosition());
-
-    m_drivingEncoder.setPosition(0);
 
     // Apply all configs to the motor controller. Always should be the last direct motor call
     m_drivingSparkFlex.configure(
@@ -64,6 +61,12 @@ public class MAXSwerveModule {
         RevConfigs.MAXSwerveModule.turningConfig,
         ResetMode.kResetSafeParameters,
         PersistMode.kPersistParameters);
+
+    // Chassis Configuration
+    m_chassisAngularOffset = chassisAngularOffset;
+    m_desiredState.angle = new Rotation2d(m_turningEncoder.getPosition());
+
+    m_drivingEncoder.setPosition(0);
   }
 
   /**
