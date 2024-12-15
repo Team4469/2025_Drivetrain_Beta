@@ -32,6 +32,8 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.LimelightHelpers;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.VisionConstants;
+import frc.robot.util.Elastic;
+import frc.robot.util.Elastic.Notification.NotificationLevel;
 
 import java.util.Optional;
 
@@ -229,6 +231,8 @@ public class DriveSubsystem extends SubsystemBase {
   /** Zeroes the heading of the robot. */
   public void zeroHeading() {
     m_gyro.reset();
+    Elastic.Notification notification = new Elastic.Notification(NotificationLevel.INFO, "Gyro Reset", "Gyro heading has been zeroed", 4000);
+    Elastic.sendNotification(notification);
   }
 
   /**
