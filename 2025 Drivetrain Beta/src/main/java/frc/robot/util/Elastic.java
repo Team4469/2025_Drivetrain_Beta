@@ -59,8 +59,8 @@ public final class Elastic {
     private double height;
 
     /**
-     * Creates a new Notification with all default parameters. This constructor is intended
-     * to be used with the chainable decorator methods
+     * Creates a new Notification with all default parameters. This constructor is intended to be
+     * used with the chainable decorator methods
      *
      * <p>Title and description fields are empty.
      */
