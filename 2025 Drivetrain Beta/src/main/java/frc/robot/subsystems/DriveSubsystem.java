@@ -224,9 +224,7 @@ public class DriveSubsystem extends SubsystemBase {
   /** Zeroes the heading of the robot. */
   public void zeroHeading() {
     m_gyro.reset();
-    Elastic.Notification notification =
-        new Elastic.Notification(
-            NotificationLevel.INFO, "Gyro Reset", "Gyro heading has been zeroed", 4000);
+    Elastic.Notification notification = new Elastic.Notification(NotificationLevel.INFO, "Gyro Reset", "Gyro heading has been zeroed", 4000);
     Elastic.sendNotification(notification);
   }
 
