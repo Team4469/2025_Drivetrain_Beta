@@ -13,6 +13,8 @@ import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
 import com.studica.frc.AHRS;
 import com.studica.frc.AHRS.NavXComType;
+
+import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -27,9 +29,12 @@ import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.LimelightHelpers;
 import frc.robot.Constants.DriveConstants;
+import frc.robot.Constants.VisionConstants;
 import frc.robot.util.Elastic;
 import frc.robot.util.Elastic.Notification.NotificationLevel;
+
 import java.util.Optional;
 
 public class DriveSubsystem extends SubsystemBase {
@@ -37,6 +42,8 @@ public class DriveSubsystem extends SubsystemBase {
   private final Field2d m_field = new Field2d();
 
   private RobotConfig robotConfig;
+
+  boolean doRejectUpdate;
 
   // Create MAXSwerveModules
   private final MAXSwerveModule m_frontLeft =
@@ -273,10 +280,35 @@ public class DriveSubsystem extends SubsystemBase {
     };
   }
 
+  public void setVisionMeasurementStdDevs(boolean isTeleop) {
+    if(isTeleop){
+      m_poseEstimator.setVisionMeasurementStdDevs(VecBuilder.fill(.7,.7,9999999));
+    } else {
+      m_poseEstimator.setVisionMeasurementStdDevs(VecBuilder.fill(9999999,9999999,9999999)); // Auto should trust the odometry only
+    }
+  }
+
   @Override
   public void periodic() {
     // Update the odometry in the periodic block
-
+    LimelightHelpers.SetRobotOrientation(VisionConstants.ll_Front, m_poseEstimator.getEstimatedPosition().getRotation().getDegrees(), 0, 0, 0, 0, 0);
+    LimelightHelpers.PoseEstimate mt2Front = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(VisionConstants.ll_Front);
+    
+    if(Math.abs(m_gyro.getRate())>720)
+    {
+      doRejectUpdate = true;
+    }
+    if(mt2Front.tagCount == 0)
+    {
+      doRejectUpdate = true;
+    }
+    if(!doRejectUpdate)
+    {
+      m_poseEstimator.addVisionMeasurement(
+        mt2Front.pose,
+        mt2Front.timestampSeconds);
+    }
+    
     m_poseEstimator.update(
         Rotation2d.fromDegrees(getAngleCorrected()),
         new SwerveModulePosition[] {
