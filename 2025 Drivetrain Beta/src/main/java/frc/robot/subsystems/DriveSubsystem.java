@@ -4,16 +4,20 @@
 
 package frc.robot.subsystems;
 
+import static edu.wpi.first.units.Units.Meter;
 import static edu.wpi.first.units.Units.MetersPerSecond;
+import static edu.wpi.first.units.Units.Newtons;
 import static edu.wpi.first.units.Units.RadiansPerSecond;
 
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.config.PIDConstants;
 import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.util.DriveFeedforwards;
+import com.pathplanner.lib.util.swerve.SwerveSetpoint;
+import com.pathplanner.lib.util.swerve.SwerveSetpointGenerator;
 import com.studica.frc.AHRS;
 import com.studica.frc.AHRS.NavXComType;
-
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
@@ -22,6 +26,9 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
+import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.units.measure.Distance;
+import edu.wpi.first.units.measure.Force;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.shuffleboard.BuiltInWidgets;
@@ -29,19 +36,26 @@ import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.LimelightHelpers;
+import frc.robot.Constants;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.VisionConstants;
+import frc.robot.LimelightHelpers;
 import frc.robot.util.Elastic;
 import frc.robot.util.Elastic.Notification.NotificationLevel;
 
 import java.util.Optional;
 
 public class DriveSubsystem extends SubsystemBase {
+  private final SwerveSetpointGenerator setpointGenerator;
+  private SwerveSetpoint previousSetpoint;
 
   private final Field2d m_field = new Field2d();
 
   private RobotConfig robotConfig;
+
+  private double[] feedforwardVoltage;
+
+  private boolean mt2FrontConnected;
 
   boolean doRejectUpdate;
 
@@ -80,6 +94,7 @@ public class DriveSubsystem extends SubsystemBase {
           DriveConstants.kDriveKinematics, getHeading(), getModulePositions(), new Pose2d());
 
   /** Creates a new DriveSubsystem. */
+  @SuppressWarnings("unused")
   public DriveSubsystem() {
     Shuffleboard.getTab("Field")
         .add("Field", m_field)
@@ -95,15 +110,43 @@ public class DriveSubsystem extends SubsystemBase {
       // Handle exception as needed
       e.printStackTrace();
     }
+
+    setpointGenerator =
+        new SwerveSetpointGenerator(robotConfig, Constants.DriveConstants.kMaxAngularSpeed);
+
+    ChassisSpeeds currentSpeeds = getRobotRelativeSpeeds();
+    SwerveModuleState[] currentStates = getModuleStates();
+    previousSetpoint =
+        new SwerveSetpoint(
+            currentSpeeds, currentStates, DriveFeedforwards.zeros(robotConfig.numModules));
+
+    mt2FrontConnected = true;
+
+    final boolean USE_FEEDFORWARD_FORCES = true;
+    final boolean USE_SETPOINT_GENERATOR = false;
+
+    if (USE_FEEDFORWARD_FORCES && USE_SETPOINT_GENERATOR) {
+      System.out.println(
+          "WARNING DRIVE: Both advanced options are enabled, will default to setpoint generator");
+    }
+
     // Configure AutoBuilder last
     AutoBuilder.configure(
         this::getPose, // Robot pose supplier
         this::resetOdometry, // Method to reset odometry (will be called if your auto has a starting
         // pose)
         this::getRobotRelativeSpeeds, // ChassisSpeeds supplier. MUST BE ROBOT RELATIVE
-        (speeds, feedforwards) ->
-            driveRobotRelative(
-                speeds), // Method that will drive the robot given ROBOT RELATIVE ChassisSpeeds.
+        (speeds, feedforwards) -> {
+          if ((USE_FEEDFORWARD_FORCES && USE_SETPOINT_GENERATOR)) {
+            driveRobotRelative(speeds);
+          } else if (USE_SETPOINT_GENERATOR) {
+            driveRobotRelative(speeds);
+          } else if (USE_FEEDFORWARD_FORCES) {
+            driveAuto(speeds, feedforwards.linearForces());
+          } else {
+            drive(speeds, false);
+          }
+        },
         // Also optionally outputs individual module feedforwards
         new PPHolonomicDriveController( // PPHolonomicController is the built in path following
             // controller for holonomic drive trains
@@ -187,16 +230,64 @@ public class DriveSubsystem extends SubsystemBase {
     drive(new ChassisSpeeds(xSpeedDelivered, ySpeedDelivered, rotDelivered), fieldRelative);
   }
 
-  private void driveRobotRelative(ChassisSpeeds speeds) {
-    drive(speeds, false);
-  }
-
   private void drive(ChassisSpeeds speeds, boolean fieldRelative) {
     if (fieldRelative)
-      speeds = ChassisSpeeds.fromFieldRelativeSpeeds(speeds, getPose().getRotation());
+      speeds =
+          ChassisSpeeds.fromFieldRelativeSpeeds(
+              speeds,
+              getPose()
+                  .getRotation()); // Convert from field relative to robot relative for determining
+    // speeds
     var swerveModuleStates = DriveConstants.kDriveKinematics.toSwerveModuleStates(speeds);
     SwerveDriveKinematics.desaturateWheelSpeeds(swerveModuleStates, DriveConstants.kMaxSpeed);
     setModuleStates(swerveModuleStates);
+  }
+
+  private void driveAuto(ChassisSpeeds speeds, Force[] feedforwardForces) {
+    var swerveModuleStates = DriveConstants.kDriveKinematics.toSwerveModuleStates(speeds);
+    SwerveDriveKinematics.desaturateWheelSpeeds(swerveModuleStates, DriveConstants.kMaxSpeed);
+
+    // necessary information to calculate feed-forward. Same for all modules in our current config
+    DCMotor driveMotorModel = DCMotor.getNeoVortex(1);
+    double driveGearRatio = Constants.ModuleConstants.kDrivingMotorReduction;
+    Distance wheelRadius = Constants.ModuleConstants.kWheelDiameter.divide(2); // YAGSL in meters
+
+    for (int i = 0; i < 4; i++) {
+      // calculation:
+      double desiredGroundSpeedMPS = swerveModuleStates[i].speedMetersPerSecond;
+      feedforwardVoltage[i] =
+          driveMotorModel.getVoltage(
+              // Since: (1) torque = force * momentOfForce; (2) torque (on wheel) = torque (on
+              // motor) * gearRatio
+              // torque (on motor) = force * wheelRadius / gearRatio
+              feedforwardForces[i].in(Newtons) * wheelRadius.in(Meter) / driveGearRatio,
+              // Since: (1) linear velocity = angularVelocity * wheelRadius; (2) wheelVelocity =
+              // motorVelocity / gearRatio
+              // motorAngularVelocity = linearVelocity / wheelRadius * gearRatio
+              desiredGroundSpeedMPS / wheelRadius.in(Meter) * driveGearRatio);
+    }
+
+    setModuleStatesAuto(swerveModuleStates, feedforwardVoltage);
+  }
+
+  /**
+   * This method will take in desired robot-relative chassis speeds, generate a swerve setpoint,
+   * then set the target state for each module
+   *
+   * @param speeds The desired robot-relative speeds
+   */
+  public void driveRobotRelative(ChassisSpeeds speeds) {
+    // Note: it is important to not discretize speeds before or after
+    // using the setpoint generator, as it will discretize them for you
+    previousSetpoint =
+        setpointGenerator.generateSetpoint(
+            previousSetpoint, // The previous setpoint
+            speeds, // The desired target speeds
+            0.02 // The loop time of the robot code, in seconds
+            );
+    setModuleStates(
+        previousSetpoint
+            .moduleStates()); // Method that will drive the robot given target module states
   }
 
   /** Sets the wheels into an X formation to prevent movement. */
@@ -213,11 +304,17 @@ public class DriveSubsystem extends SubsystemBase {
    * @param desiredStates The desired SwerveModule states.
    */
   public void setModuleStates(SwerveModuleState[] desiredStates) {
-    SwerveDriveKinematics.desaturateWheelSpeeds(desiredStates, DriveConstants.kMaxSpeed);
     m_frontLeft.setDesiredState(desiredStates[0]);
     m_frontRight.setDesiredState(desiredStates[1]);
     m_rearLeft.setDesiredState(desiredStates[2]);
     m_rearRight.setDesiredState(desiredStates[3]);
+  }
+
+  public void setModuleStatesAuto(SwerveModuleState[] desiredStates, double[] feedforwardVoltages) {
+    m_frontLeft.setDesiredStateWithFeedForward(desiredStates[0], feedforwardVoltages[0]);
+    m_frontRight.setDesiredStateWithFeedForward(desiredStates[0], feedforwardVoltages[0]);
+    m_rearLeft.setDesiredStateWithFeedForward(desiredStates[0], feedforwardVoltages[0]);
+    m_rearRight.setDesiredStateWithFeedForward(desiredStates[0], feedforwardVoltages[0]);
   }
 
   /** Resets the drive encoders to currently read a position of 0. */
@@ -231,7 +328,9 @@ public class DriveSubsystem extends SubsystemBase {
   /** Zeroes the heading of the robot. */
   public void zeroHeading() {
     m_gyro.reset();
-    Elastic.Notification notification = new Elastic.Notification(NotificationLevel.INFO, "Gyro Reset", "Gyro heading has been zeroed", 4000);
+    Elastic.Notification notification =
+        new Elastic.Notification(
+            NotificationLevel.INFO, "Gyro Reset", "Gyro heading has been zeroed", 4000);
     Elastic.sendNotification(notification);
   }
 
@@ -281,34 +380,45 @@ public class DriveSubsystem extends SubsystemBase {
   }
 
   public void setVisionMeasurementStdDevs(boolean isTeleop) {
-    if(isTeleop){
-      m_poseEstimator.setVisionMeasurementStdDevs(VecBuilder.fill(.7,.7,9999999));
+    if (isTeleop) {
+      m_poseEstimator.setVisionMeasurementStdDevs(VecBuilder.fill(.7, .7, 9999999));
     } else {
-      m_poseEstimator.setVisionMeasurementStdDevs(VecBuilder.fill(9999999,9999999,9999999)); // Auto should trust the odometry only
+      m_poseEstimator.setVisionMeasurementStdDevs(
+          VecBuilder.fill(9999999, 9999999, 9999999)); // Auto should trust the odometry only
     }
   }
 
   @Override
   public void periodic() {
     // Update the odometry in the periodic block
-    LimelightHelpers.SetRobotOrientation(VisionConstants.ll_Front, m_poseEstimator.getEstimatedPosition().getRotation().getDegrees(), 0, 0, 0, 0, 0);
-    LimelightHelpers.PoseEstimate mt2Front = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(VisionConstants.ll_Front);
-    
-    if(Math.abs(m_gyro.getRate())>720)
-    {
-      doRejectUpdate = true;
+    LimelightHelpers.SetRobotOrientation(
+        VisionConstants.ll_Front,
+        m_poseEstimator.getEstimatedPosition().getRotation().getDegrees(),
+        0,
+        0,
+        0,
+        0,
+        0);
+    LimelightHelpers.PoseEstimate mt2Front =
+        LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(VisionConstants.ll_Front);
+
+    if (mt2FrontConnected) {
+      try {
+        if (Math.abs(m_gyro.getRate()) > 720) {
+          doRejectUpdate = true;
+        }
+        if (mt2Front.tagCount == 0) {
+          doRejectUpdate = true;
+        }
+        if (!doRejectUpdate) {
+          m_poseEstimator.addVisionMeasurement(mt2Front.pose, mt2Front.timestampSeconds);
+        }
+      } catch (Exception e) {
+        System.out.println("WARNING DRIVE: Limelight not connected " + e);
+        mt2FrontConnected = false;
+      }
     }
-    if(mt2Front.tagCount == 0)
-    {
-      doRejectUpdate = true;
-    }
-    if(!doRejectUpdate)
-    {
-      m_poseEstimator.addVisionMeasurement(
-        mt2Front.pose,
-        mt2Front.timestampSeconds);
-    }
-    
+
     m_poseEstimator.update(
         Rotation2d.fromDegrees(getAngleCorrected()),
         new SwerveModulePosition[] {

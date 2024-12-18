@@ -12,6 +12,7 @@ import com.revrobotics.spark.SparkBase.ControlType;
 import com.revrobotics.spark.SparkBase.PersistMode;
 import com.revrobotics.spark.SparkBase.ResetMode;
 import com.revrobotics.spark.SparkClosedLoopController;
+import com.revrobotics.spark.SparkClosedLoopController.ArbFFUnits;
 import com.revrobotics.spark.SparkFlex;
 import com.revrobotics.spark.SparkLowLevel.MotorType;
 import com.revrobotics.spark.SparkMax;
@@ -113,6 +114,37 @@ public class MAXSwerveModule {
     // Command driving and turning SPARKS MAX towards their respective setpoints.
     m_drivingPIDController.setReference(
         correctedDesiredState.speedMetersPerSecond, ControlType.kVelocity);
+    m_turningPIDController.setReference(
+        correctedDesiredState.angle.getRadians(), ControlType.kPosition);
+
+    m_desiredState = desiredState;
+  }
+
+  /**
+   * Sets the desired state for the module. This is unoptimized to use PathPlanner Feed Forward
+   * outputs. Only use this method for pathplanner
+   *
+   * @param desiredState Desired state with speed and angle.
+   * @param voltageFeedForward Voltage to add as feedforward for drive motor
+   */
+  public void setDesiredStateWithFeedForward(
+      SwerveModuleState desiredState, double voltageFeedForward) {
+    // Apply chassis angular offset to the desired state.
+    SwerveModuleState correctedDesiredState = new SwerveModuleState();
+    correctedDesiredState.speedMetersPerSecond = desiredState.speedMetersPerSecond;
+    correctedDesiredState.angle =
+        desiredState.angle.plus(Rotation2d.fromRadians(m_chassisAngularOffset.in(Radian)));
+
+    // Optimize the reference state to avoid spinning further than 90 degrees.
+    correctedDesiredState.optimize(new Rotation2d(m_turningEncoder.getPosition()));
+
+    // Command driving and turning SPARKS MAX towards their respective setpoints.
+    m_drivingPIDController.setReference(
+        correctedDesiredState.speedMetersPerSecond,
+        ControlType.kVelocity,
+        0,
+        voltageFeedForward,
+        ArbFFUnits.kVoltage);
     m_turningPIDController.setReference(
         correctedDesiredState.angle.getRadians(), ControlType.kPosition);
 
