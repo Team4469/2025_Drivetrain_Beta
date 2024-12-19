@@ -122,7 +122,7 @@ public class DriveSubsystem extends SubsystemBase {
 
     mt2FrontConnected = true;
 
-    final boolean USE_FEEDFORWARD_FORCES = true;
+    final boolean USE_FEEDFORWARD_FORCES = false;
     final boolean USE_SETPOINT_GENERATOR = false;
 
     if (USE_FEEDFORWARD_FORCES && USE_SETPOINT_GENERATOR) {
