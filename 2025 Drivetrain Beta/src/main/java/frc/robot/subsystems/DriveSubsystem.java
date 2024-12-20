@@ -250,7 +250,7 @@ public class DriveSubsystem extends SubsystemBase {
     // necessary information to calculate feed-forward. Same for all modules in our current config
     DCMotor driveMotorModel = DCMotor.getNeoVortex(1);
     double driveGearRatio = Constants.ModuleConstants.kDrivingMotorReduction;
-    Distance wheelRadius = Constants.ModuleConstants.kWheelDiameter.divide(2); // YAGSL in meters
+    Distance wheelRadius = Constants.ModuleConstants.kWheelDiameter.div(2); // YAGSL in meters
 
     for (int i = 0; i < 4; i++) {
       // calculation:

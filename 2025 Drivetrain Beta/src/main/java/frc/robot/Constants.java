@@ -73,10 +73,10 @@ public final class Constants {
     // Math.abs(Math.hypot(kTrackWidthMeters / 2, kWheelBaseMeters / 2));
     public static final SwerveDriveKinematics kDriveKinematics =
         new SwerveDriveKinematics(
-            new Translation2d(kWheelBase.divide(2), kTrackWidth.divide(2)),
-            new Translation2d(kWheelBase.divide(2), kTrackWidth.divide(2).unaryMinus()),
-            new Translation2d(kWheelBase.divide(2).unaryMinus(), kTrackWidth.divide(2)),
-            new Translation2d(kWheelBase.divide(2).unaryMinus(), kTrackWidth.divide(2))
+            new Translation2d(kWheelBase.div(2), kTrackWidth.div(2)),
+            new Translation2d(kWheelBase.div(2), kTrackWidth.div(2).unaryMinus()),
+            new Translation2d(kWheelBase.div(2).unaryMinus(), kTrackWidth.div(2)),
+            new Translation2d(kWheelBase.div(2).unaryMinus(), kTrackWidth.div(2))
                 .unaryMinus());
 
     // Angular offsets of the modules relative to the chassis in radians
@@ -135,13 +135,13 @@ public final class Constants {
             / kDrivingMotorReduction;
 
     public static final Distance kDrivingEncoderPositionFactor =
-        (kWheelDiameter.times(Math.PI)).divide(kDrivingMotorReduction);
+        (kWheelDiameter.times(Math.PI)).div(kDrivingMotorReduction);
     public static final LinearVelocity kDrivingEncoderVelocityFactor =
-        kDrivingEncoderPositionFactor.divide(Seconds.of(60));
+        kDrivingEncoderPositionFactor.div(Seconds.of(60));
 
     public static final Angle kTurningEncoderPositionFactor = Radians.of(2 * Math.PI); // radians
     public static final AngularVelocity kTurningEncoderVelocityFactor =
-        kTurningEncoderPositionFactor.divide(Seconds.of(60));
+        kTurningEncoderPositionFactor.div(Seconds.of(60));
 
     public static final Angle kTurningEncoderPositionPIDMinInput = Radians.of(0);
     public static final Angle kTurningEncoderPositionPIDMaxInput = kTurningEncoderPositionFactor;
