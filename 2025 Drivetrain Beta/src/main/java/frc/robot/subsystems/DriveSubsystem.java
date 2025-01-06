@@ -4,6 +4,7 @@
 
 package frc.robot.subsystems;
 
+import static edu.wpi.first.units.Units.Degrees;
 import static edu.wpi.first.units.Units.Meter;
 import static edu.wpi.first.units.Units.MetersPerSecond;
 import static edu.wpi.first.units.Units.Newtons;
@@ -27,6 +28,7 @@ import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.Distance;
 import edu.wpi.first.units.measure.Force;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -56,6 +58,10 @@ public class DriveSubsystem extends SubsystemBase {
   private double[] feedforwardVoltage;
 
   private boolean mt2FrontConnected;
+
+  private boolean dsConnected = false;
+
+  private Angle allianceOffset = Degrees.of(0);
 
   boolean doRejectUpdate;
 
@@ -96,6 +102,9 @@ public class DriveSubsystem extends SubsystemBase {
   /** Creates a new DriveSubsystem. */
   @SuppressWarnings("unused")
   public DriveSubsystem() {
+
+    checkAlliance();
+
     Shuffleboard.getTab("Field")
         .add("Field", m_field)
         .withWidget(BuiltInWidgets.kField)
@@ -328,10 +337,32 @@ public class DriveSubsystem extends SubsystemBase {
   /** Zeroes the heading of the robot. */
   public void zeroHeading() {
     m_gyro.reset();
+
+    /* Trying to allow driver to always point front of robot away from them instead of remembering to point front of robot towards red driver station */
+    if (!dsConnected) {checkAlliance();}
+    m_poseEstimator.resetRotation(new Rotation2d(allianceOffset));
     Elastic.Notification notification =
         new Elastic.Notification(
             NotificationLevel.INFO, "Gyro Reset", "Gyro heading has been zeroed", 4000);
     Elastic.sendNotification(notification);
+  }
+
+  public boolean checkAlliance(){
+    Optional<Alliance> ally = DriverStation.getAlliance();
+    if (ally.isPresent()) {
+        if (ally.get() == Alliance.Red) {
+            allianceOffset = Degrees.of(180);
+            dsConnected = true;
+        }
+        if (ally.get() == Alliance.Blue) {
+            allianceOffset = Degrees.of(0);
+            dsConnected = true;
+        }
+    }
+    else {
+        dsConnected = false;
+    }
+    return dsConnected;
   }
 
   /**
